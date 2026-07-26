@@ -1,8 +1,11 @@
 """LumiNode - Conversational Financial Assistant.
 
-`send_chat_message` gathers the full financial context off the graph -
+`_generate_agent_reply` gathers the full financial context off the graph -
 cards, loans, pending actions, latest simulation - then answers the user's
-question with that context in hand, iMessage-style.
+question with that context in hand. This is the single source of truth for
+the assistant's behavior: both the website chat panel (`send_chat_message`)
+and the iMessage integration (`credit/imessage.jac`) call this same function,
+so the two surfaces never drift apart.
 """
 
 import from .model {
@@ -27,10 +30,19 @@ questions about the user's own account numbers, which you already have.
 """;
 sem search_credit_knowledge.query = "A focused search query for the credit-scoring knowledge base.";
 
+obj AgentReply {
+    has reply: str,
+        has_score_update: bool = False,
+        updated_score: int = 0;
+}
+sem AgentReply = "The assistant's reply, plus any credit-score update it detected in the user's message.";
+sem AgentReply.has_score_update = "True only if the user just told you their current credit score changed (e.g. 'my score is 620 now').";
+sem AgentReply.updated_score = "The new credit score value, only meaningful when has_score_update is True.";
+
 def answer_financial_question(
     question: str,
     financial_context: dict
-) -> str by llm(tools=[search_credit_knowledge]);
+) -> AgentReply by llm(tools=[search_credit_knowledge]);
 sem answer_financial_question = """
 You are LumiNode, a friendly financial assistant for low-income users.
 You have access to the user's complete credit profile and financial data,
@@ -43,12 +55,19 @@ Rules:
 - For credit score questions about their OWN account, reference their actual credit factors and pending actions.
 - For general "how does X work" questions, call search_credit_knowledge instead of guessing.
 - Always be encouraging but honest.
-- Keep responses concise (2-3 sentences for simple questions, a short paragraph for complex ones).
+- Keep responses concise (2-3 sentences for simple questions, a short paragraph for complex ones) -
+  this reply may be read as a text message, so avoid long paragraphs or markdown formatting.
 - If they ask about something outside their financial data, be helpful but note your limitations.
+
+Separately from the reply text: if the user's message states their credit score has changed
+(e.g. "my score is 620 now", "just checked, I'm at 700", "credit score updated to 580"), set
+has_score_update to True and updated_score to that number. Only do this when they're reporting
+an actual current score, not when discussing a target, a hypothetical, or someone else's score.
+Otherwise leave has_score_update False.
 """;
 
 """Deterministic stand-in used when no LLM key is configured."""
-def _fallback_chat_response(question: str, context: dict) -> str {
+def _fallback_chat_response(question: str, context: dict) -> AgentReply {
     score = context["current_score"];
     target = context["target_score"];
     total_debt = context["total_debt"];
@@ -59,43 +78,40 @@ def _fallback_chat_response(question: str, context: dict) -> str {
 
     if "afford" in q {
         if context["monthly_income"] > 0.0 {
-            return (
+            return AgentReply(reply=(
                 f"After your bills and minimum payments, you have about ${discretionary:.0f} left over each month, "
                 + f"plus ${savings:.0f} in savings. "
                 + "Before taking on a new payment, make sure it doesn't push any card over 30% utilization - "
                 + "that's the fastest way to undo progress toward your target score."
-            );
+            ));
         }
-        return (
+        return AgentReply(reply=(
             f"You're carrying ${total_debt:.0f} in total debt right now. "
             + "Before taking on a new payment, make sure it doesn't push any card over 30% utilization - "
             + "that's the fastest way to undo progress toward your target score."
-        );
+        ));
     }
     if "pay" in q or "first" in q {
         if len(pending) > 0 {
             top = pending[0];
-            return f"Start with: {top['desc']} - it's estimated to move your score by {top['impact']} points.";
+            return AgentReply(reply=f"Start with: {top['desc']} - it's estimated to move your score by {top['impact']} points.");
         }
-        return "You don't have any pending actions queued up yet - run a simulation first.";
+        return AgentReply(reply="You don't have any pending actions queued up yet - run a simulation first.");
     }
     if "when" in q or "how long" in q {
-        return f"Your current score is {score} and your target is {target}. Run a simulation to see the fastest projected timeline.";
+        return AgentReply(reply=f"Your current score is {score} and your target is {target}. Run a simulation to see the fastest projected timeline.");
     }
-    return (
+    return AgentReply(reply=(
         f"Your score is currently {score}, and you're aiming for {target}. "
         + f"You're carrying ${total_debt:.0f} in total debt across your accounts. "
         + "Ask me things like \"how do I get to my target?\" or \"what should I pay first?\" "
         + "(connect an LLM key for fully personalized answers)."
-    );
+    ));
 }
 
-"""Save the user's message, answer it with full graph context, save the reply."""
-def:protect send_chat_message(message: str) -> list[ChatMessage] {
-    profiles = [root -->][?:CreditProfile];
-    if len(profiles) == 0 { return []; }
-    profile = profiles[0];
-
+"""Builds the same financial-context dict the agent reasons over, regardless
+of which surface (website chat or iMessage) is asking."""
+def _build_financial_context(profile: CreditProfile) -> dict {
     cards = [profile ->:HasAccount:->][?:CreditCard];
     loans = [profile ->:HasAccount:->][?:Loan];
     actions = [profile -->][?:Action];
@@ -105,7 +121,7 @@ def:protect send_chat_message(message: str) -> list[ChatMessage] {
     monthly_min_payments = sum([c.min_payment for c in cards]) + sum([l.monthly_payment for l in loans]);
     discretionary_income = profile.monthly_income - profile.monthly_cost_of_living - monthly_min_payments;
 
-    context = {
+    return {
         "current_score": profile.current_score,
         "target_score": profile.target_score,
         "cards": [
@@ -129,17 +145,36 @@ def:protect send_chat_message(message: str) -> list[ChatMessage] {
             {"path": r.path_name, "projected": r.projected_score, "days": r.total_days} for r in results
         ]
     };
+}
+
+"""The one place that actually asks the assistant a question and gets an
+answer back - context-building, the LLM call, and its deterministic fallback.
+Shared by every entry point (website chat, iMessage) so they can never
+answer the same question differently."""
+def _generate_agent_reply(message: str, profile: CreditProfile) -> AgentReply {
+    context = _build_financial_context(profile);
+    try {
+        return answer_financial_question(question=message, financial_context=context);
+    } except Exception {
+        return _fallback_chat_response(message, context);
+    }
+}
+
+"""Save the user's message, answer it with full graph context, save the reply."""
+def:protect send_chat_message(message: str) -> list[ChatMessage] {
+    profiles = [root -->][?:CreditProfile];
+    if len(profiles) == 0 { return []; }
+    profile = profiles[0];
 
     user_msg = ChatMessage(role="user", content=message, timestamp=_get_current_date());
     profile +>:HasMessage():+> user_msg;
 
-    try {
-        response = answer_financial_question(question=message, financial_context=context);
-    } except Exception {
-        response = _fallback_chat_response(message, context);
+    reply = _generate_agent_reply(message, profile);
+    if reply.has_score_update {
+        profile.current_score = reply.updated_score;
     }
 
-    assistant_msg = ChatMessage(role="assistant", content=response, timestamp=_get_current_date());
+    assistant_msg = ChatMessage(role="assistant", content=reply.reply, timestamp=_get_current_date());
     profile +>:HasMessage():+> assistant_msg;
 
     return [profile ->:HasMessage:->][?:ChatMessage];

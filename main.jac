@@ -9,6 +9,7 @@ Auth is real email/password (see pages/login.jac, pages/signup.jac);
 import from credit.graph { get_dashboard_data, submit_onboarding, rerun_simulation }
 import from credit.ripple { run_ripple_simulation }
 import from credit.chat { send_chat_message }
+import from credit.imessage { connect_phone, imessage_webhook }
 
 import "./assets/main.css";
 

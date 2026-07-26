@@ -687,6 +687,40 @@ body {
   font-size: 0.8rem;
   text-decoration: none;
 }
+.lumi-phone-connected {
+  font-size: 0.8rem;
+  color: var(--node-green);
+  white-space: nowrap;
+}
+
+.lumi-phone-panel {
+  position: absolute;
+  top: 100%;
+  right: 1.5rem;
+  margin-top: 0.5rem;
+  width: 320px;
+  max-width: calc(100vw - 3rem);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  z-index: 30;
+}
+.lumi-phone-panel-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 1rem;
+  margin: 0;
+}
+.lumi-phone-panel-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
 
 .lumi-auth-error {
   color: var(--node-red);

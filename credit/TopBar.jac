@@ -3,6 +3,7 @@
 import from react { useEffect }
 import from "@jac/runtime" { useNavigate, jacLogout }
 sv import from .model { CreditProfile }
+sv import from .imessage { connect_phone }
 
 def score_color(score: int) -> str {
     if score < 580 { return "var(--node-red)"; }
@@ -19,7 +20,12 @@ def score_pct(score: int) -> float {
 }
 
 def:pub TopBar(profile: CreditProfile, onToggleChat: Callable[[MouseEvent], None], chatOpen: bool) -> JsxElement {
-    has displayScore: int = -1;
+    has displayScore: int = -1,
+        phonePanelOpen: bool = False,
+        phoneInput: str = "",
+        consentChecked: bool = False,
+        connecting: bool = False,
+        connectStatus: str = "";
 
     nav = useNavigate();
 
@@ -28,6 +34,12 @@ def:pub TopBar(profile: CreditProfile, onToggleChat: Callable[[MouseEvent], None
         jacLogout();
         nav("/login");
     }
+    def togglePhonePanel(e: MouseEvent) {
+        phonePanelOpen = not phonePanelOpen;
+        connectStatus = "";
+    }
+
+    async def submitPhone() -> None;
 
     useEffect(lambda {
         target = profile.current_score;
@@ -94,6 +106,11 @@ def:pub TopBar(profile: CreditProfile, onToggleChat: Callable[[MouseEvent], None
         </div>
         <div className="lumi-topbar-actions">
             <button className="lumi-btn-secondary lumi-topbar-btn" onClick={goUpdateInfo}>Update Info</button>
+            {if profile.imessage_handle {
+                <span className="lumi-phone-connected">📱 Connected</span>
+            } else {
+                <button className="lumi-btn-secondary lumi-topbar-btn" onClick={togglePhonePanel}>Connect on iMessage</button>
+            }}
             <button
                 className={"lumi-chat-toggle" + (" lumi-chat-toggle-active" if chatOpen else "")}
                 onClick={onToggleChat}
@@ -102,5 +119,43 @@ def:pub TopBar(profile: CreditProfile, onToggleChat: Callable[[MouseEvent], None
             </button>
             <button className="lumi-link-btn lumi-logout-btn" onClick={doLogout}>Log out</button>
         </div>
+        {if phonePanelOpen and not profile.imessage_handle {
+            <div className="lumi-phone-panel">
+                <p className="lumi-phone-panel-title">Text with your LumiNode agent</p>
+                <p className="lumi-phone-panel-hint">
+                    Works with a phone number or an Apple ID email (handy if you use iMessage from a Mac).
+                    We'll text you a starter message - reply anytime, ask questions, or just tell us when your score changes.
+                </p>
+                <input
+                    className="lumi-input"
+                    type="text"
+                    placeholder="(555) 123-4567 or you@icloud.com"
+                    value={phoneInput}
+                    onChange={lambda (e: ChangeEvent) { phoneInput = e.target.value; }}
+                    disabled={connecting}
+                />
+                <label className="lumi-checkbox-row">
+                    <input
+                        type="checkbox"
+                        checked={consentChecked}
+                        onChange={lambda (e: ChangeEvent) { consentChecked = not consentChecked; }}
+                        disabled={connecting}
+                    />
+                    Text me - I agree to receive automated messages from LumiNode about my credit progress.
+                </label>
+                {if connectStatus {
+                    <p className="lumi-auth-error">{connectStatus}</p>
+                }}
+                <div className="lumi-nav-row">
+                    <button
+                        className="lumi-btn-secondary lumi-topbar-btn"
+                        onClick={submitPhone}
+                        disabled={connecting or not consentChecked or not phoneInput.strip()}
+                    >
+                        {"Sending…" if connecting else "Text me →"}
+                    </button>
+                </div>
+            </div>
+        }}
     </header>;
 }

@@ -20,9 +20,18 @@ node CreditProfile {
         monthly_income: float = 0.0,
         monthly_cost_of_living: float = 0.0,
         savings_balance: float = 0.0,
-        investment_balance: float = 0.0;
+        investment_balance: float = 0.0,
+        imessage_handle: str = "";
+
+    # Body lives in credit/imessage.jac (impl CreditProfile.accept_imessage_write).
+    # A node's own ability runs in the node's own permission context, so this
+    # is how the anonymous BlueBubbles webhook (no login session, can't be
+    # granted access the normal way) is able to write a chat message and a
+    # score update onto a profile it doesn't own.
+    can accept_imessage_write with entry;
 }
 sem CreditProfile = "The user's overall credit profile containing their current and target scores";
+sem CreditProfile.imessage_handle = "The iMessage address linked for text updates - either an E.164 phone number ('+15551234567') or an Apple ID email; empty if not connected";
 
 node CreditCard {
     has card_name: str,
