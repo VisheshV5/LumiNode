@@ -67,13 +67,14 @@ def:pub TopBar(profile: CreditProfile, onToggleChat: Callable[[MouseEvent], None
         return lambda { clearInterval(interval); };
     }, [profile.current_score]);
 
-    shown = profile.current_score if displayScore == -1 else displayScore;
-    gap_to_target = profile.target_score - shown;
+    raw_shown = profile.current_score if displayScore == -1 else displayScore;
+    shown = min(raw_shown, 850);
+    shown_target = min(profile.target_score, 850);
+    gap_to_target = shown_target - shown;
 
     return <header className="lumi-topbar">
         <div className="lumi-logo">
-            <span className="lumi-logo-node"/>
-            LumiNode
+            <img className="lumi-logo-img-small" src="/assets/luminode_logo.png" alt="LumiNode"/>
         </div>
         <div className="lumi-score-block">
             <div className="lumi-score-readout">
@@ -93,8 +94,8 @@ def:pub TopBar(profile: CreditProfile, onToggleChat: Callable[[MouseEvent], None
                         className="lumi-score-progress"
                         style={{"width": f"{score_pct(shown)}%", "backgroundColor": score_color(shown), "boxShadow": "0 0 10px " + score_color(shown)}}
                     />
-                    <div className="lumi-score-target-marker" style={{"left": f"{score_pct(profile.target_score)}%"}}>
-                        <span className="lumi-score-target-pill">Target {profile.target_score}</span>
+                    <div className="lumi-score-target-marker" style={{"left": f"{score_pct(shown_target)}%"}}>
+                        <span className="lumi-score-target-pill">Target {shown_target}</span>
                         <span className="lumi-score-target-flag"/>
                     </div>
                 </div>

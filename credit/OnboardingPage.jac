@@ -11,6 +11,7 @@ import from "./components/magicui/magic-card" { MagicCard }
 import from "./components/magicui/border-beam" { BorderBeam }
 import from "./components/magicui/shimmer-button" { ShimmerButton }
 import from "./components/magicui/blur-fade" { BlurFade }
+import from .LoadingOverlay { LoadingOverlay }
 
 def parse_float(s: str, fallback: float) -> float {
     if not s.strip() { return fallback; }
@@ -189,6 +190,7 @@ def:pub OnboardingPage() -> JsxElement {
     }
 
     return <div className="lumi-onboarding">
+        <LoadingOverlay active={submitting} doneLabel={"Re-running your simulation" if isEditing else "Illuminating your path"}/>
         <div className="lumi-progress-dots">
             {for i in range(1, totalSteps + 1) {
                 <span key={str(i)} className={"lumi-dot" + (" lumi-dot-active" if step >= i else "")}/>

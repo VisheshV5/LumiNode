@@ -124,6 +124,98 @@ body {
 
 .lumi-boot-text { color: var(--text-muted); font-size: 0.9rem; }
 
+/* ===================== loading overlay (submit / re-run simulation) ===================== */
+
+.lumi-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-void) 90%, transparent);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  z-index: 200;
+  animation: lumiFadeIn 0.25s ease both;
+}
+
+.lumi-loading-orb {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  margin-bottom: 0.5rem;
+}
+.lumi-loading-orb-glow {
+  position: absolute;
+  inset: -22px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--lumi-glow) 0%, transparent 70%);
+  opacity: 0.6;
+  animation: lumiPulse 1.8s ease-in-out infinite;
+}
+.lumi-loading-orb-core {
+  position: absolute;
+  inset: 32px;
+  border-radius: 999px;
+  background: var(--lumi-glow);
+  box-shadow: 0 0 30px var(--lumi-glow), 0 0 60px var(--lumi-soft);
+}
+.lumi-loading-orbit {
+  position: absolute;
+  inset: 0;
+  animation: lumiSpin 2.6s linear infinite;
+}
+.lumi-loading-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+}
+.lumi-loading-dot-1 { background: var(--node-green); box-shadow: 0 0 10px var(--node-green); transform: translate(-50%, -50%) rotate(0deg) translateX(55px); }
+.lumi-loading-dot-2 { background: var(--node-amber); box-shadow: 0 0 10px var(--node-amber); transform: translate(-50%, -50%) rotate(120deg) translateX(55px); }
+.lumi-loading-dot-3 { background: var(--node-blue); box-shadow: 0 0 10px var(--node-blue); transform: translate(-50%, -50%) rotate(240deg) translateX(55px); }
+
+.lumi-loading-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  margin: 0;
+}
+.lumi-loading-stage {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+  min-height: 1.2em;
+  animation: lumiFadeIn 0.4s ease both;
+}
+
+.lumi-loading-bar-track {
+  width: 280px;
+  max-width: 70vw;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+.lumi-loading-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--lumi-glow), #fff7d6, var(--lumi-glow));
+  background-size: 200% 100%;
+  animation: lumiShimmerMove 1.4s linear infinite;
+  transition: width 0.25s ease;
+  box-shadow: 0 0 12px var(--lumi-soft);
+}
+@keyframes lumiShimmerMove {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* ===================== hero / onboarding ===================== */
 
 /* ===================== landing: dormant -> luminized ===================== */
@@ -537,12 +629,10 @@ body {
   font-weight: 700;
   font-size: 1.1rem;
 }
-.lumi-logo-node {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  background: var(--lumi-glow);
-  box-shadow: 0 0 12px var(--lumi-glow);
+.lumi-logo-img-small {
+  height: 46px;
+  width: auto;
+  filter: drop-shadow(0 0 10px var(--lumi-soft));
 }
 
 .lumi-score-block {
@@ -897,9 +987,7 @@ body {
   font-size: 23px;
   pointer-events: none;
   user-select: none;
-  paint-order: stroke;
-  stroke: #7A5200;
-  stroke-width: 2.5px;
+  filter: blur(0.4px);
 }
 
 .lumi-graph-node-label {
@@ -912,6 +1000,9 @@ body {
   fill: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
+}
+.lumi-graph-node-center .lumi-graph-node-label {
+  fill: #FFFFFF;
 }
 
 .lumi-graph-legend {

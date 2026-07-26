@@ -18,6 +18,7 @@ import from .model {
 import from .planner { optimize_path }
 import from .factors_agent { compute_and_store_factor_assessments, valid_factor_assessments }
 import from .discovered_actions_agent { compute_and_store_discovered_actions }
+import from .imessage { grant_imessage_write_access }
 
 # ═══════════════════════════════════════════
 # GRAPH RESET + CONSTRUCTION
@@ -149,6 +150,12 @@ def _build_credit_graph(payload: dict) -> CreditProfile {
         has_student_loan=num_student > 0
     );
     profile +>:HasMix():+> mix_node;
+
+    # No-op unless the profile already has an iMessage handle connected -
+    # re-applies the grant to the freshly rebuilt cards/loans, since grants
+    # are per-node and the old account nodes (and their grants) were just
+    # deleted/replaced above.
+    grant_imessage_write_access(profile);
 
     return profile;
 }

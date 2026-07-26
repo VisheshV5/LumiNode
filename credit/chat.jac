@@ -33,11 +33,33 @@ sem search_credit_knowledge.query = "A focused search query for the credit-scori
 obj AgentReply {
     has reply: str,
         has_score_update: bool = False,
-        updated_score: int = 0;
+        updated_score: int = 0,
+        has_card_update: bool = False,
+        updated_card_name: str = "",
+        updated_card_balance: float = 0.0,
+        has_income_update: bool = False,
+        updated_income: float = 0.0,
+        has_cost_of_living_update: bool = False,
+        updated_cost_of_living: float = 0.0,
+        has_savings_update: bool = False,
+        updated_savings: float = 0.0,
+        has_investment_update: bool = False,
+        updated_investment: float = 0.0;
 }
-sem AgentReply = "The assistant's reply, plus any credit-score update it detected in the user's message.";
+sem AgentReply = "The assistant's reply, plus any account update(s) it detected in the user's message - credit score, a specific card's balance, income, cost of living, savings, or investments.";
 sem AgentReply.has_score_update = "True only if the user just told you their current credit score changed (e.g. 'my score is 620 now').";
 sem AgentReply.updated_score = "The new credit score value, only meaningful when has_score_update is True.";
+sem AgentReply.has_card_update = "True only if the user just told you one of their card balances changed (e.g. 'my Visa balance is now $1000').";
+sem AgentReply.updated_card_name = "The card name as it appears in their real card list (from financial_context['cards']), matched to whichever card they mentioned.";
+sem AgentReply.updated_card_balance = "The new balance for that card, only meaningful when has_card_update is True.";
+sem AgentReply.has_income_update = "True only if the user just told you their monthly income changed.";
+sem AgentReply.updated_income = "The new monthly income, only meaningful when has_income_update is True.";
+sem AgentReply.has_cost_of_living_update = "True only if the user just told you their monthly cost of living/expenses changed.";
+sem AgentReply.updated_cost_of_living = "The new monthly cost of living, only meaningful when has_cost_of_living_update is True.";
+sem AgentReply.has_savings_update = "True only if the user just told you their savings balance changed.";
+sem AgentReply.updated_savings = "The new savings balance, only meaningful when has_savings_update is True.";
+sem AgentReply.has_investment_update = "True only if the user just told you their investment balance changed.";
+sem AgentReply.updated_investment = "The new investment balance, only meaningful when has_investment_update is True.";
 
 def answer_financial_question(
     question: str,
@@ -59,11 +81,19 @@ Rules:
   this reply may be read as a text message, so avoid long paragraphs or markdown formatting.
 - If they ask about something outside their financial data, be helpful but note your limitations.
 
-Separately from the reply text: if the user's message states their credit score has changed
-(e.g. "my score is 620 now", "just checked, I'm at 700", "credit score updated to 580"), set
-has_score_update to True and updated_score to that number. Only do this when they're reporting
-an actual current score, not when discussing a target, a hypothetical, or someone else's score.
-Otherwise leave has_score_update False.
+Separately from the reply text, detect any of these the user is reporting as their NEW current
+value (not a target, a hypothetical, or a question) and set the matching fields:
+- Credit score changed (e.g. "my score is 620 now", "just checked, I'm at 700") -> has_score_update,
+  updated_score.
+- A specific card's balance changed (e.g. "my Visa balance is now $1000", "I paid my Discover card
+  down to $200") -> has_card_update, updated_card_name (match it to the real name in
+  financial_context['cards'], not whatever short name they used), updated_card_balance.
+- Monthly income changed -> has_income_update, updated_income.
+- Monthly cost of living / expenses changed -> has_cost_of_living_update, updated_cost_of_living.
+- Savings balance changed -> has_savings_update, updated_savings.
+- Investment balance changed -> has_investment_update, updated_investment.
+Leave every has_*_update field False unless its condition is clearly met - never guess a value.
+Multiple can be true at once if they reported more than one change in the same message.
 """;
 
 """Deterministic stand-in used when no LLM key is configured."""
@@ -160,6 +190,40 @@ def _generate_agent_reply(message: str, profile: CreditProfile) -> AgentReply {
     }
 }
 
+"""Writes every update the agent detected in `reply` onto the real graph -
+credit score, a specific card's balance, income, cost of living, savings, or
+investments. Shared by every entry point so a change reported over iMessage
+shows up on the dashboard exactly like one typed in the website chat."""
+def _apply_agent_update(profile: CreditProfile, reply: AgentReply) -> None {
+    if reply.has_score_update {
+        profile.current_score = reply.updated_score;
+    }
+    if reply.has_income_update {
+        profile.monthly_income = reply.updated_income;
+    }
+    if reply.has_cost_of_living_update {
+        profile.monthly_cost_of_living = reply.updated_cost_of_living;
+    }
+    if reply.has_savings_update {
+        profile.savings_balance = reply.updated_savings;
+    }
+    if reply.has_investment_update {
+        profile.investment_balance = reply.updated_investment;
+    }
+    if reply.has_card_update and reply.updated_card_name.strip() {
+        target_name = reply.updated_card_name.strip().lower();
+        for c in [profile ->:HasAccount:->][?:CreditCard] {
+            existing_name = c.card_name.lower();
+            if target_name in existing_name or existing_name in target_name {
+                c.current_balance = reply.updated_card_balance;
+                if c.credit_limit > 0.0 {
+                    c.utilization_pct = c.current_balance / c.credit_limit * 100.0;
+                }
+            }
+        }
+    }
+}
+
 """Save the user's message, answer it with full graph context, save the reply."""
 def:protect send_chat_message(message: str) -> list[ChatMessage] {
     profiles = [root -->][?:CreditProfile];
@@ -170,9 +234,7 @@ def:protect send_chat_message(message: str) -> list[ChatMessage] {
     profile +>:HasMessage():+> user_msg;
 
     reply = _generate_agent_reply(message, profile);
-    if reply.has_score_update {
-        profile.current_score = reply.updated_score;
-    }
+    _apply_agent_update(profile, reply);
 
     assistant_msg = ChatMessage(role="assistant", content=reply.reply, timestamp=_get_current_date());
     profile +>:HasMessage():+> assistant_msg;

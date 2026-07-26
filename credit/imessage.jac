@@ -13,11 +13,12 @@ detected, and sends the reply back through BlueBubbles.
 
 import os;
 import json;
-import from uuid { uuid4 }
+import from uuid { uuid4, UUID }
 import from urllib.request { Request, urlopen }
 import from urllib.parse { quote }
+import from jaclang { JacRuntime as Jac }
 
-import from .model { CreditProfile }
+import from .model { CreditProfile, HasAccount }
 
 glob _BB_URL: str = os.environ.get("BLUEBUBBLES_URL", "http://localhost:1234");
 glob _BB_PASSWORD: str = os.environ.get("BLUEBUBBLES_PASSWORD", "");
@@ -112,6 +113,28 @@ def _normalize_imessage_address(raw: str) -> str {
 # CLIENT-FACING ENDPOINT - "Connect on my phone"
 # ═══════════════════════════════════════════
 
+"""Grants the anonymous iMessage webhook write access to this profile AND
+every account node hanging off it (cards, loans). Grants are per-node, not
+per-subtree, so each account needs its own grant call - re-running this
+after Update Info rebuilds the account list (credit/graph.jac) is what
+covers cards/loans added or replaced after the initial connect."""
+def grant_imessage_write_access(profile: CreditProfile) -> None {
+    if not profile.imessage_handle { return; }
+    # BlueBubbles calls the webhook with no login session - it runs as the
+    # anonymous guest identity (root.shared), not "a logged-in user", so
+    # grant() (which only covers other logged-in users) never applies here.
+    # allow_root targets one SPECIFIC root id though, and root.shared has its
+    # own stable id like any other root - granting write access to that
+    # specific id is what actually lets the anonymous webhook write back to
+    # this profile and its accounts (attach chat messages, update the score
+    # or a card balance).
+    guest_root = UUID(jid(root.shared));
+    Jac.allow_root(profile, guest_root, WritePerm);  # jac:ignore[E1053]
+    for acct in [profile ->:HasAccount:->] {
+        Jac.allow_root(acct, guest_root, WritePerm);  # jac:ignore[E1053]
+    }
+}
+
 """Links a phone number OR an Apple ID email to the caller's own profile and
 fires the opening text - Mac users commonly have no phone number registered
 on iMessage at all, just their email."""
@@ -124,6 +147,7 @@ def:protect connect_phone(phone_number: str) -> bool {
     if not normalized { return False; }
 
     profile.imessage_handle = normalized;
+    grant_imessage_write_access(profile);
     return _send_imessage_new(
         normalized,
         "Hey! I'm your LumiNode credit agent. Text me anytime - ask me things like "

@@ -13,7 +13,7 @@ impl CreditProfile.accept_imessage_write with entry {
     # so importing here instead of at module scope is what breaks the cycle.
     # jac check doesn't catch this - it only crashes the server process at
     # import time, silently, with no HTTP-visible error.
-    import from .chat { _generate_agent_reply }
+    import from .chat { _generate_agent_reply, _apply_agent_update }
     import from .imessage { _send_imessage_reply }
 
     caller: any = visitor;
@@ -24,9 +24,7 @@ impl CreditProfile.accept_imessage_write with entry {
         user_msg = ChatMessage(role="user", content=text, timestamp=_get_current_date());
         self +>:HasMessage():+> user_msg;
 
-        if reply.has_score_update {
-            self.current_score = reply.updated_score;
-        }
+        _apply_agent_update(self, reply);
 
         assistant_msg = ChatMessage(role="assistant", content=reply.reply, timestamp=_get_current_date());
         self +>:HasMessage():+> assistant_msg;

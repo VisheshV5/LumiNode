@@ -1,15 +1,18 @@
 """LumiNode - Optimal action-path timeline."""
 
 sv import from .model { SimulationResult }
+import from .LoadingOverlay { LoadingOverlay }
 
 def:pub ActionPath(result: SimulationResult | None, onRerun: Callable[[], None], submitting: bool) -> JsxElement {
     if result is None {
         return <section className="lumi-action-path lumi-action-path-empty">
+            <LoadingOverlay active={submitting} doneLabel="Running your simulation"/>
             <p>No simulation yet - once actions are discovered, your optimal path appears here.</p>
         </section>;
     }
 
     return <section className="lumi-action-path">
+        <LoadingOverlay active={submitting} doneLabel="Re-running your simulation"/>
         <div className="lumi-path-head">
             <div>
                 <h2 className="lumi-panel-title">{result.path_name}</h2>
