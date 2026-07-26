@@ -1,0 +1,56 @@
+[project]
+name = "luminode"
+version = "0.1.0"
+description = "LumiNode - credit score cartography for JacHacks SF"
+entry-point = "main.jac"
+kind = "web-app"
+jac-version = "==0.34.6"
+
+[dependencies]
+sentence-transformers = ">=2.2.0"
+chromadb = ">=0.4.0"
+
+[dependencies.npm]
+react = "^18.2.0"
+react-dom = "^18.2.0"
+react-router-dom = "^6.22.0"
+react-error-boundary = "^5.0.0"
+"@tanstack/react-form" = "^1.33.0"
+zod = "^4.3.6"
+motion = "^12.23.12"
+clsx = "^2.1.1"
+"tailwind-merge" = "^3.3.1"
+d3-force = "^3.0.0"
+
+[dependencies.npm.dev]
+vite = "^6.4.1"
+"@vitejs/plugin-react" = "4.7.0"
+typescript = "^5.3.3"
+"@types/react" = "^18.2.0"
+"@types/react-dom" = "^18.2.0"
+tailwindcss = "^4.1.0"
+"@tailwindcss/vite" = "^4.1.0"
+
+[dev-dependencies]
+watchdog = ">=3.0.0"
+
+[serve]
+base_route_app = "app"
+
+[client]
+
+[client.vite]
+plugins = ["tailwindcss()"]
+lib_imports = ["import tailwindcss from '@tailwindcss/vite'"]
+
+[client.app_meta_data]
+title = "LumiNode"
+description = "For 100 million Americans, their credit score is a black box. LumiNode lights up every node."
+theme_color = "#0A0A0F"
+
+[byllm.model]
+default_model = "${LUMINODE_LLM_MODEL:-gemini/gemini-3.5-flash-lite}"
+api_key = "${GOOGLE_API_KEY:-}"
+
+[byllm.call_params]
+temperature = 0.3

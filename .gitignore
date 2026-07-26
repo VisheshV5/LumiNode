@@ -1,0 +1,8 @@
+.jac/
+.rag_store/
+.env
+node_modules/
+.vscode/
+.idea/
+.DS_Store
+.claude/
