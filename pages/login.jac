@@ -6,7 +6,7 @@ import from "../credit/components/magicui/magic-card" { MagicCard }
 import from "../credit/components/magicui/border-beam" { BorderBeam }
 import from "../credit/components/magicui/shimmer-button" { ShimmerButton }
 
-def:pub page() -> JsxElement {
+def:pub page() -> JsxPage {
     has email: str = "",
         password: str = "",
         submitting: bool = False,

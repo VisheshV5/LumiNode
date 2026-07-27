@@ -98,6 +98,16 @@ person can realistically afford a paydown's dollar amount given their income,
 cost of living, and savings before sequencing it early - don't front-load a
 paydown they can't actually make.
 
+POINT ESTIMATES ARE BOUNDED. Your score_impact figures are held to sourced
+ceilings after you return them (credit/model.jac), so a high guess is not
+just wrong, it is discarded. Estimate at the CONSERVATIVE FLOOR of what the
+knowledge base supports - a number the person beats, not one they fall short
+of. Utilization gains scale with how many threshold bands a paydown actually
+CROSSES (~10 points per aggregate crossing), never with the dollar amount
+paid: 61% -> 58% crosses nothing and is worth 0. Do not sum overlapping
+actions at face value either - a paydown and a limit increase on the same
+card move one shared lever, not two.
+
 Find the genuinely fastest realistic sequence to reach the target score.
 """;
 

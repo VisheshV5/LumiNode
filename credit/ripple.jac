@@ -109,6 +109,36 @@ def _fallback_ripple_effects(action_type: str, estimated_impact: int) -> list[Ri
     ];
 }
 
+"""Hold a ripple breakdown to the action's own sourced budget. A ripple view
+decomposes ONE action across the factors it touches, so its parts must not sum
+to more than that action's clamped total - otherwise the ripple panel and the
+action path quote different numbers for the same action. Gains are scaled down
+proportionally; negative side-effects are left alone, since a larger downside
+is the conservative read."""
+def _fit_to_budget(effects: list[RippleEffect], budget: int) -> list[RippleEffect] {
+    allowed = budget if budget > 0 else 0;
+    gains = 0;
+    for e in effects {
+        if e.score_impact > 0 { gains = gains + e.score_impact; }
+    }
+    if gains > 0 and gains > allowed {
+        scale = (allowed as float) / (gains as float);
+        for e in effects {
+            if e.score_impact > 0 {
+                e.score_impact = int((e.score_impact as float) * scale);
+            }
+        }
+    }
+    # Drop "0 points, nothing changes" rows - they pad the panel without
+    # saying anything. Negative rows STAY: a real downside is a warning the
+    # user needs, not a recommendation, and hiding it would mislead.
+    kept: list[RippleEffect] = [];
+    for e in effects {
+        if e.score_impact != 0 { kept.append(e); }
+    }
+    return kept;
+}
+
 """Simulate the cascading effects of one specific discovered action."""
 def:protect run_ripple_simulation(action_id: str) -> list[RippleEffect] {
     profiles = [root -->][?:CreditProfile];
@@ -129,7 +159,7 @@ def:protect run_ripple_simulation(action_id: str) -> list[RippleEffect] {
     found = target_action as Action;
 
     try {
-        return simulate_credit_action_effects(
+        effects = simulate_credit_action_effects(
             action_type=found.action_type,
             action_description=found.description,
             current_score=profile.current_score,
@@ -138,6 +168,7 @@ def:protect run_ripple_simulation(action_id: str) -> list[RippleEffect] {
             total_limit=total_limit,
             total_balance=total_balance
         );
+        return _fit_to_budget(effects, found.estimated_score_impact);
     } except Exception {
         return _fallback_ripple_effects(found.action_type, found.estimated_score_impact);
     }

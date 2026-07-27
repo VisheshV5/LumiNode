@@ -3,7 +3,7 @@
 import from "@jac/runtime" { jacIsLoggedIn, Navigate }
 import from ..credit.DashboardShell { DashboardShell }
 
-def:pub page() -> JsxElement {
+def:pub page() -> JsxPage {
     if not jacIsLoggedIn() {
         return <Navigate to="/login" replace={True} />;
     }

@@ -229,19 +229,112 @@ def _get_current_date() -> str {
     return datetime.now().strftime("%Y-%m-%d");
 }
 
-"""Estimate score impact of a utilization change based on FICO buckets."""
-def _estimate_utilization_impact(current_util: float, target_util: float) -> int {
-    buckets = [
-        (0.0, 1.0, 0), (1.0, 9.0, 10), (9.0, 29.0, -10),
-        (29.0, 49.0, -25), (49.0, 74.0, -45), (74.0, 101.0, -65)
-    ];
-    current_penalty = -65;
-    target_penalty = -65;
-    for (low, high, penalty) in buckets {
-        if low <= current_util < high { current_penalty = penalty; }
-        if low <= target_util < high { target_penalty = penalty; }
+# ═══════════════════════════════════════════
+# SCORE IMPACT MODEL
+#
+# Every constant below traces to a cited section of knowledge/. Where no
+# source exists, the value sits at the conservative FLOOR of the observed
+# range, never its midpoint or top - a shown estimate should be one the
+# user beats, not one they fall short of.
+#
+# The functions here are the single source of truth for point values: the
+# deterministic fallback path calls them directly, and the LLM agents are
+# clamped against them (see _clamp_action_impact). An agent may propose a
+# LOWER number with its own reasoning; it can never propose a higher one.
+# ═══════════════════════════════════════════
+
+"""Utilization threshold band edges, per discovered-actions KB 1.1 and 2:
+under 9%, under 29%, under 49%, under 69%, under 89%, with 89%+ effectively
+maxed. Community-derived (long-running myFICO forum consensus) and NOT
+officially disclosed by FICO - scoring moves in a step when a band is
+crossed, and barely at all within one."""
+glob _UTIL_BANDS: list[float] = [9.0, 29.0, 49.0, 69.0, 89.0];
+
+"""Points per band crossing. KB 1.1 cites roughly 10-15 points for crossing an
+AGGREGATE threshold and roughly 5 for an individual-card threshold. We take
+the bottom of the aggregate range."""
+glob _POINTS_PER_BAND: int = 10;
+
+"""Authorized-user tradeline. No official figure exists; published experiments
+report a 3-45 point spread (avg ~22), and KB 1.5 notes the effect is
+"smaller for users who already have an established file". Floored well below
+that average."""
+glob _AU_IMPACT: int = 15;
+
+"""Absolute per-action ceilings. pay_down/request_cli sit at 50 because five
+band crossings is the most the ladder physically allows (maxed -> under 9%);
+their real ceiling is usually far lower and comes from live utilization via
+_estimate_utilization_impact. dispute approximates FICO's published damage
+data for an already-low score (a late costs a 580-tier file far less than a
+780-tier one, so recovery is correspondingly smaller); open_account is a
+near-term DIP, not a gain."""
+glob _ACTION_IMPACT_CEILING: dict[str, int] = {
+    "pay_down": 50,
+    "request_cli": 50,
+    "become_au": 15,
+    "dispute": 40,
+    "pay_collection": 25,
+    "open_account": -5,
+    "alt_data_boost": 10,
+    "avoid_inquiries": 5,
+    "keep_old_open": 5
+};
+
+"""Confidence = P(the user reaches AT LEAST the displayed number). Because the
+displayed number is the conservative floor, confidence in meeting it is
+legitimately high for actions the user controls outright, and low only where
+a third party can decline (issuer, creditor, bureau). Per KB 3.5, this is
+calibrated to source quality and to who holds the decision."""
+glob _ACTION_CONFIDENCE: dict[str, float] = {
+    "pay_down": 0.85,
+    "request_cli": 0.70,
+    "become_au": 0.70,
+    "pay_collection": 0.75,
+    "avoid_inquiries": 0.80,
+    "keep_old_open": 0.80,
+    "open_account": 0.60,
+    "alt_data_boost": 0.55,
+    "dispute": 0.40
+};
+
+"""No plan is a certainty - the user still has to execute it."""
+glob _MAX_PATH_CONFIDENCE: float = 0.90;
+
+"""Primary FICO factor each action moves. Actions sharing a factor overlap and
+must not be summed at full value (see _apply_factor_decay). become_au is
+filed under length_of_history because the aged tradeline is its distinctive
+contribution; its utilization help is secondary and partly self-cancelling,
+since the AU account's balance joins the aggregate along with its limit."""
+glob _ACTION_FACTOR: dict[str, str] = {
+    "pay_down": "amounts_owed",
+    "request_cli": "amounts_owed",
+    "become_au": "length_of_history",
+    "keep_old_open": "length_of_history",
+    "dispute": "payment_history",
+    "pay_collection": "payment_history",
+    "open_account": "credit_mix",
+    "avoid_inquiries": "new_credit",
+    "alt_data_boost": "new_credit"
+};
+
+"""Multiplier applied to the 1st, 2nd, 3rd... action hitting the same factor."""
+glob _FACTOR_DECAY: list[float] = [1.0, 0.6, 0.4, 0.25];
+
+"""Which utilization band a ratio falls in - 0 is best (<9%), 5 is maxed."""
+def _util_band(util: float) -> int {
+    band = 0;
+    for edge in _UTIL_BANDS {
+        if util >= edge { band = band + 1; }
     }
-    return target_penalty - current_penalty;
+    return band;
+}
+
+"""Estimate score impact of a utilization change, scaled by how many threshold
+bands the change actually crosses - not by the dollar amount paid, per the
+KB 3.1 guardrail. Paying 61% -> 58% crosses nothing and correctly scores 0."""
+def _estimate_utilization_impact(current_util: float, target_util: float) -> int {
+    crossings = _util_band(current_util) - _util_band(target_util);
+    return crossings * _POINTS_PER_BAND;
 }
 
 """Estimate impact of a credit limit increase (assumes a 50% increase)."""
@@ -253,10 +346,76 @@ def _estimate_cli_impact(current_util: float, current_limit: float) -> int {
     return _estimate_utilization_impact(current_util, new_util);
 }
 
-"""Estimate score impact of removing a late payment."""
+"""Estimate score impact of removing a late payment, assuming removal succeeds.
+The odds of it succeeding are carried in confidence (0.40), not here."""
 def _estimate_dispute_impact(late_30: int, late_60: int, late_90: int) -> int {
     if late_90 > 0 { return 40; }
     if late_60 > 0 { return 30; }
     if late_30 > 0 { return 20; }
     return 0;
+}
+
+"""Estimate score impact of being added as an authorized user."""
+def _estimate_au_impact() -> int {
+    return _AU_IMPACT;
+}
+
+"""Sourced ceiling for an action type. An action type absent from the table is
+one nobody sized against a source - most likely a lever an agent invented - so
+it gets a deliberately tight default rather than a free pass."""
+def _static_impact_ceiling(action_type: str) -> int {
+    return _ACTION_IMPACT_CEILING.get(action_type, 15);
+}
+
+"""Hold a proposed point value to its sourced ceiling. A proposal may sit
+BELOW the ceiling (an agent reasoning its way to a smaller number is fine, and
+a deeper temporary dip is the conservative read); it may never sit above it."""
+def _clamp_action_impact(proposed: int, ceiling: int) -> int {
+    if proposed > ceiling { return ceiling; }
+    return proposed;
+}
+
+"""Confidence for a single action - see _ACTION_CONFIDENCE."""
+def _confidence_for_action(action_type: str) -> float {
+    return _ACTION_CONFIDENCE.get(action_type, 0.50);
+}
+
+"""Blend per-action confidence into one path figure, weighted by each step's
+share of the total points, so the number is dominated by whichever steps are
+actually carrying the projection."""
+def _path_confidence(step_types: list[str], step_impacts: list[int]) -> float {
+    total_weight = 0.0;
+    weighted = 0.0;
+    i = 0;
+    for t in step_types {
+        w = abs(step_impacts[i] as float) if i < len(step_impacts) else 0.0;
+        i = i + 1;
+        if w <= 0.0 { continue; }
+        total_weight = total_weight + w;
+        weighted = weighted + w * _confidence_for_action(t);
+    }
+    if total_weight <= 0.0 { return 0.50; }
+    conf = weighted / total_weight;
+    if conf > _MAX_PATH_CONFIDENCE { return _MAX_PATH_CONFIDENCE; }
+    return conf;
+}
+
+"""Decay the 2nd+ action hitting the same FICO factor. Two utilization plays
+(a paydown and a limit increase on the same card) move one shared lever and
+must not be added at face value - the naive sum is what produced the original
+"+75 then +30, so +105" projection."""
+def _apply_factor_decay(step_types: list[str], step_impacts: list[int]) -> list[int] {
+    seen: dict[str, int] = {};
+    out: list[int] = [];
+    i = 0;
+    for t in step_types {
+        raw = step_impacts[i] if i < len(step_impacts) else 0;
+        i = i + 1;
+        factor = _ACTION_FACTOR.get(t, t);
+        n = seen.get(factor, 0);
+        idx = n if n < len(_FACTOR_DECAY) else (len(_FACTOR_DECAY) - 1);
+        out.append(int((raw as float) * _FACTOR_DECAY[idx]));
+        seen[factor] = n + 1;
+    }
+    return out;
 }

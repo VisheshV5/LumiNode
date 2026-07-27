@@ -16,7 +16,8 @@ import from .graph_tools {
 }
 import from .model {
     CreditProfile, Action,
-    _estimate_utilization_impact, _estimate_cli_impact, _estimate_dispute_impact
+    _estimate_utilization_impact, _estimate_cli_impact, _estimate_dispute_impact,
+    _estimate_au_impact, _clamp_action_impact, _static_impact_ceiling
 }
 
 # ═══════════════════════════════════════════
@@ -113,7 +114,10 @@ def _fallback_discover_actions -> list[DiscoveredActionSpec] {
         name: str = c["name"];
         is_au: bool = c["is_authorized_user"];
 
-        if util > 10.0 {
+        # Threshold matches the 9% band edge in credit/model.jac. The old
+        # `> 10.0` silently skipped cards sitting between 9% and 10%, which are
+        # one cheap paydown away from crossing into the top band.
+        if util >= 9.0 {
             target_balance = limit * 0.089;
             pay_amount = balance - target_balance;
             if pay_amount > 0.0 {
@@ -159,7 +163,7 @@ def _fallback_discover_actions -> list[DiscoveredActionSpec] {
     specs.append(DiscoveredActionSpec(
         action_type="become_au",
         description="Get added as an authorized user on a family member's oldest card with perfect history",
-        estimated_score_impact=30,
+        estimated_score_impact=_estimate_au_impact(),
         time_to_effect_days=30,
         difficulty="medium",
         risk_level="low"
@@ -201,10 +205,22 @@ def compute_and_store_discovered_actions {
     }
 
     for spec in specs {
+        # The agent's own point estimate is advisory - it is held to the
+        # sourced ceiling in credit/model.jac before anything is persisted, so
+        # a plausible-sounding overshoot can never reach the UI. A lower
+        # estimate the agent reasoned its way to passes through untouched.
+        capped = _clamp_action_impact(
+            spec.estimated_score_impact,
+            _static_impact_ceiling(spec.action_type)
+        );
+        # Never surface an action that gains nothing or costs points - a
+        # paydown crossing no threshold band, or a new account whose near-term
+        # effect is a dip. Neither is something to recommend doing.
+        if capped <= 0 { continue; }
         action = Action(
             action_type=spec.action_type,
             description=spec.description,
-            estimated_score_impact=spec.estimated_score_impact,
+            estimated_score_impact=capped,
             time_to_effect_days=spec.time_to_effect_days,
             difficulty=spec.difficulty,
             risk_level=spec.risk_level
